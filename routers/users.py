@@ -5,6 +5,7 @@ from models import User
 from schemas import UserBase, UserResponse
 from typing import List
 import utils
+from email_utils import send_welcome_email
 
 router = APIRouter()
 # Base.metadata.create_all(bind=engine)
@@ -17,7 +18,7 @@ router = APIRouter()
 #         db.close()
 
 @router.post("/", status_code=status.HTTP_201_CREATED, response_model=UserResponse)
-def create_user(user: UserBase, db:Session = Depends(get_db)):
+async def create_user(user: UserBase, db:Session = Depends(get_db)):
     if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
     elif not user.email or not user.password:
@@ -31,6 +32,9 @@ def create_user(user: UserBase, db:Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+
+    # Send welcome email asynchronously (non-blocking)
+    await send_welcome_email(new_user.email, new_user.first_name)
 
     return new_user
 
