@@ -7,8 +7,11 @@ import oauth
 from typing import List, Optional
 from sqlalchemy import func
 from ai_models import sentiment_analyzer, summarizer
+from datetime import datetime
+from llm_service import LLMService
 import os
 from uuid import uuid4
+from services.mcp_client import MCPClient
 
 
 router = APIRouter()
@@ -25,7 +28,7 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 #         db.close()
 
 
-@router.post("/", status_code=status.HTTP_201_CREATED, response_model=PostResponse)
+@router.post("", status_code=status.HTTP_201_CREATED, response_model=PostResponse)
 def create_post(
     title: str = Form(...),
     content: str = Form(...),
@@ -34,9 +37,23 @@ def create_post(
     file: Optional[UploadFile] = File(None)
 ):
     print('email', current_user)
-    # Run sentiment analysis
-    result = sentiment_analyzer(content)[0]
-    sentiment = result["label"]
+    # Run sentiment analysis via MCP sentiment tool with local fallback
+    sentiment = None
+    try:
+        sentiment_payload = {"text": content}
+        sentiment_result = MCPClient.invoke_tool("sentiment", sentiment_payload)
+        if isinstance(sentiment_result, dict):
+            sentiment = sentiment_result.get("sentiment")
+    except Exception as exc:
+        print("MCP sentiment tool failed:", exc)
+
+    if not sentiment:
+        result = sentiment_analyzer(content)[0]
+        sentiment = result["label"]
+
+    sentiment = (sentiment or "NEUTRAL").strip()
+    if len(sentiment) > 50:
+        sentiment = sentiment[:50]
 
     image_url = None
     if file:
@@ -64,7 +81,7 @@ def create_post(
     return db_post
 
 
-@router.get("/", response_model=List[PostOut])
+@router.get("", response_model=List[PostOut])
 def get_posts(db: Session = Depends(get_db), limit: int = 10, skip: int = 0, search: Optional[str] = ""):
     posts = (
         db.query(Post)
@@ -129,7 +146,10 @@ def update_post(id: int, updated_post: PostCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
                             detail="Not authorized to perform this action")
 
-    post_query.update(updated_post.dict(), synchronize_session=False)
+    update_data = updated_post.dict()
+    update_data['updated_at'] = datetime.now()
+
+    post_query.update(update_data, synchronize_session=False)
     db.commit()
     return post_query.first()
 
@@ -148,11 +168,31 @@ def summarize_post(id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
                             detail="Post content is empty, cannot summarize.")
 
-    summary_result = summarizer(
-        post.content, min_length=25, do_sample=False
-    )[0]
-    post_query.update(
-        {"summary": summary_result["summary_text"]}, synchronize_session=False)
+    # summary_result = summarizer(
+    #     post.content, min_length=25, do_sample=False
+    # )[0]
+    # post_query.update(
+    #     {"summary": summary_result["summary_text"]}, synchronize_session=False)
+
+        # 1) Ask MCP server for any additional context (optional)
+    try:
+        context = MCPClient.get_resource("post_meta", params={"post_id": post.id})
+    except Exception:
+        context = {}
+        # 2) Invoke MCP tool 'summarize' (this tool is implemented server-side)
+    payload = {"text": post.content, "context": context}
+    try:
+        tool_result = MCPClient.invoke_tool("summarize", payload)
+        summary_text = tool_result.get("summary")
+    except Exception as e:
+        # fallback: either raise or fallback to provider directly
+        raise HTTPException(status_code=500, detail=f"MCP tool error: {e}")
+    
+    #     # Summarize via Perplexity
+    # summary_text = LLMService.summarize_text(post.content)
+        # SAFETY NET
+    summary_text = summary_text[:500]
+    post_query.update({"summary": summary_text}, synchronize_session=False)
     db.commit()
     db.refresh(post)
     return post

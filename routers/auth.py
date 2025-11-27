@@ -10,7 +10,7 @@ import oauth
 router = APIRouter()
 
 
-@router.post("/", status_code=status.HTTP_200_OK)
+@router.post("", status_code=status.HTTP_200_OK)
 def login(user_credentials: Auth, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == user_credentials.email).first()
     if not user:

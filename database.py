@@ -16,6 +16,7 @@ DB_NAME = os.getenv("DB_NAME")
 
 # Create database connection string
 DATABASE_URL = f"mysql+mysqlconnector://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+MCP_SERVER_URL: str = os.getenv("MCP_SERVER_URL", "http://localhost:9000")
 
 # Create engine
 engine = create_engine(DATABASE_URL, echo=True, future=True)
