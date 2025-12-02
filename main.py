@@ -1,7 +1,6 @@
 from fastapi import FastAPI
 from routers import post, users, auth, vote, chat
 from fastapi.middleware.cors import CORSMiddleware
-from ai_models import sentiment_analyzer, summarizer
 from fastapi.staticfiles import StaticFiles
 import os
 

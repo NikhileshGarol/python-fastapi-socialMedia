@@ -2,16 +2,17 @@ from fastapi import FastAPI, status, HTTPException, Depends, APIRouter, UploadFi
 from sqlalchemy.orm import Session, joinedload
 from database import get_db
 from models import Post, User, Vote
-from schemas import PostCreate, PostResponse, PostOut
+from schemas import PostCreate, PostResponse, PostOut, ContentRequest
 import oauth
 from typing import List, Optional
 from sqlalchemy import func
-from ai_models import sentiment_analyzer, summarizer
+from ai_models import sentiment_analyzer
 from datetime import datetime
 from llm_service import LLMService
 import os
 from uuid import uuid4
-from services.mcp_client import MCPClient
+from services.mcp_client import MCPClient, MCPClientError
+from utils import standard_error_format, extract_mcp_error_message
 
 
 router = APIRouter()
@@ -44,7 +45,7 @@ def create_post(
         sentiment_result = MCPClient.invoke_tool("sentiment", sentiment_payload)
         if isinstance(sentiment_result, dict):
             sentiment = sentiment_result.get("sentiment")
-    except Exception as exc:
+    except MCPClientError as exc:
         print("MCP sentiment tool failed:", exc)
 
     if not sentiment:
@@ -177,16 +178,18 @@ def summarize_post(id: int, db: Session = Depends(get_db)):
         # 1) Ask MCP server for any additional context (optional)
     try:
         context = MCPClient.get_resource("post_meta", params={"post_id": post.id})
-    except Exception:
+    except MCPClientError:
         context = {}
         # 2) Invoke MCP tool 'summarize' (this tool is implemented server-side)
     payload = {"text": post.content, "context": context}
     try:
         tool_result = MCPClient.invoke_tool("summarize", payload)
         summary_text = tool_result.get("summary")
-    except Exception as e:
-        # fallback: either raise or fallback to provider directly
-        raise HTTPException(status_code=500, detail=f"MCP tool error: {e}")
+    except MCPClientError as e:
+        raise HTTPException(
+            status_code=e.status_code or 502,
+            detail=f"MCP tool error: {e}",
+        )
     
     #     # Summarize via Perplexity
     # summary_text = LLMService.summarize_text(post.content)
@@ -225,3 +228,41 @@ def upload_image(
     db.refresh(post)
 
     return {"image_url": image_url}
+
+@router.post("/generate-content", status_code=status.HTTP_200_OK)
+def generate_content(request: ContentRequest, db:Session = Depends(get_db)):
+    try:
+        tool_result = MCPClient.invoke_tool("content_generation", {"context": request.context})
+                # Ensure max length of 1500 characters
+        if isinstance(tool_result, str):
+            trimmed_result = tool_result[:1500]
+        elif isinstance(tool_result, dict) and "markdown" in tool_result:
+            tool_result["markdown"] = tool_result["markdown"][:1500]
+            trimmed_result = tool_result
+        else:
+            trimmed_result = tool_result  # Safe fallback
+
+        return {"content": trimmed_result}
+    except MCPClientError as e:
+        raw = str(e)
+
+        clean_msg = extract_mcp_error_message(raw)
+
+        raise HTTPException(
+            status_code=e.status_code or 422,
+            detail={
+                "error": True,
+                "statusCode": e.status_code or 422,
+                "message": clean_msg
+            }
+        )
+
+    except Exception as e:
+        raise standard_error_format(
+            status=500,
+            message="Internal server error during content generation."
+        )
+
+    finally:
+        db.close()
+        

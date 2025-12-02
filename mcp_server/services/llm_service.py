@@ -56,3 +56,20 @@ class LLMService:
             return response.choices[0].message.content.strip()
         except Exception as e:
             raise HTTPException(500, f"Sentiment analysis failed: {e}")
+
+    # @staticmethod
+    # async def generate_content(context: str):
+    #     client = get_client()
+    #     prompt = f"Generate a blog post about the following context: {context}"
+
+    #     try:
+    #         response = client.chat.completions.create(
+    #             model="sonar-pro",
+    #             messages=[{"role": "user", "content": prompt}],
+    #             max_tokens=400,
+    #         )
+    #         return response.choices[0].message.content
+
+    #     except Exception as e:
+    #      print("Perplexity API error:", e)
+    #      raise HTTPException(status_code=500, detail="Content genaration failed.")

@@ -1,23 +1,6 @@
-import os
-from openai import OpenAI
 from fastapi import HTTPException
 
-# Ensure .env was loaded before this import in main.py
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-
-
-def get_client():
-    """
-    Returns a Perplexity OpenAI-compatible client.
-    Raises an error if API key is missing.
-    """
-    if not PERPLEXITY_API_KEY:
-        raise RuntimeError("PERPLEXITY_API_KEY missing. Set it in the .env file.")
-
-    return OpenAI(
-        api_key=PERPLEXITY_API_KEY,
-        base_url="https://api.perplexity.ai"
-    )
+from mcp_server.services.llm_service import get_client
 
 
 def summarize_text(text: str) -> str:

@@ -79,3 +79,6 @@ class Auth(BaseModel):
 class VoteBase(BaseModel):
     post_id: int
     dir: int  # 1 for upvote, 0 for remove vote
+
+class ContentRequest(BaseModel):
+    context: str

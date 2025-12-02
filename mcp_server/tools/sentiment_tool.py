@@ -1,21 +1,9 @@
-"""
-Sentiment analysis MCP tool
-"""
-
 import json
-import os
 from typing import Any, Dict
 
 from fastapi import HTTPException
-from openai import OpenAI
 
-PERPLEXITY_API_KEY = os.getenv("PERPLEXITY_API_KEY")
-
-
-def _get_client() -> OpenAI:
-    if not PERPLEXITY_API_KEY:
-        raise RuntimeError("PERPLEXITY_API_KEY missing. Set it in the .env file.")
-    return OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
+from mcp_server.services.llm_service import get_client
 
 
 def _parse_sentiment_payload(raw: str) -> Dict[str, Any]:
@@ -64,7 +52,7 @@ def analyze_sentiment(text: str) -> Dict[str, Any]:
     )
 
     try:
-        client = _get_client()
+        client = get_client()
         response = client.chat.completions.create(
             model="sonar-pro",
             messages=[{"role": "user", "content": prompt}],
@@ -72,7 +60,11 @@ def analyze_sentiment(text: str) -> Dict[str, Any]:
             temperature=0.0,
         )
         content = response.choices[0].message.content or ""
-        return _parse_sentiment_payload(content)
+        parsed = _parse_sentiment_payload(content)
+
+        # ALWAYS return JSON string
+        return json.dumps(parsed, indent=2)
+    
     except HTTPException:
         raise
     except Exception as exc:

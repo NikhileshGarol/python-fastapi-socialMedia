@@ -1,22 +1,40 @@
+from typing import Any, Dict
+
 from fastapi import APIRouter, HTTPException
-from mcp_server.tools.summarize_tool import summarize_text
-from mcp_server.tools.sentiment_tool import analyze_sentiment
+
+from mcp_server.config import get_tool_handler, list_tools
 
 router = APIRouter()
 
-@router.post("/summarize/invoke")
-def invoke_summarize(payload: dict):
-    text = payload.get("text")
-    if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-    # you can use context as well
-    summary = summarize_text(text)
-    return {"summary": summary}
 
-@router.post("/sentiment/invoke")
-def invoke_sentiment(payload: dict):
-    text = payload.get("text")
-    if not text:
-        raise HTTPException(status_code=400, detail="text is required")
-    result = analyze_sentiment(text)
-    return result
+@router.get("")
+def list_available_tools():
+    """
+    Standard MCP discovery endpoint.
+    """
+    return {"tools": list_tools()}
+
+
+@router.post("/{tool_name}/invoke")
+def invoke_tool(tool_name: str, payload: Dict[str, Any]):
+    """
+    Invoke a registered MCP tool by name.
+    """
+    try:
+        handler = get_tool_handler(tool_name)
+    except ValueError:
+        tool_names = ", ".join(tool["name"] for tool in list_tools())
+        raise HTTPException(
+            status_code=404,
+            detail=f"Tool '{tool_name}' not found. Available tools: {tool_names}",
+        )
+
+    try:
+        return handler(payload or {})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error invoking tool '{tool_name}': {exc}",
+        )
